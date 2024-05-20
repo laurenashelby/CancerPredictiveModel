@@ -1,0 +1,522 @@
+---
+title: "Homework 4 Datamining"
+author: "Lauren Shelby"
+date: "2024-04-08"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(pROC)
+```
+
+Part 1: Data Pre-processing 
+
+```{r}
+# Loading in the data file 
+cancer_data <- read.csv("data.csv", header = T)
+head(cancer_data)
+```
+
+
+```{r}
+# Subsetting the data frame to have only our columns of interest 
+cancer_data <- subset(cancer_data, select = c(id, diagnosis, radius_mean, texture_mean, smoothness_mean, compactness_mean))
+head(cancer_data)
+```
+
+```{r}
+# Calculating the standard deviation for all values in each column of cancer_data 
+radius_sd <- sd(cancer_data$radius_mean)
+radius_sd
+texture_sd <- sd(cancer_data$texture_mean)
+texture_sd
+smoothness_sd <- sd(cancer_data$smoothness_mean)
+smoothness_sd
+compactness_sd <- sd(cancer_data$compactness_mean)
+compactness_sd
+
+# The values are not similar to each other! 
+```
+
+```{r}
+# Creating a loop that makes a new column with the normalized value of data points in each column 
+
+for (i in 1:nrow(cancer_data)) {
+  # Radius mean normalized 
+  cancer_data$radius_mean_normalized[i] <- (cancer_data$radius_mean[i] - mean(cancer_data$radius_mean))/radius_sd
+  # Texture mean normalized 
+  cancer_data$texture_mean_normalized[i] <- (cancer_data$texture_mean[i] - mean(cancer_data$texture_mean))/texture_sd
+  # Smoothness mean normalized 
+  cancer_data$smoothness_mean_normalized[i] <- (cancer_data$smoothness_mean[i] - mean(cancer_data$smoothness_mean))/smoothness_sd
+  # Compactness mean normalized 
+  cancer_data$compactness_mean_normalized[i] <- (cancer_data$compactness_mean[i] - mean(cancer_data$compactness_mean))/compactness_sd
+}
+
+head(cancer_data)
+
+```
+
+```{r}
+# Calculating the standard deviation for all normalized values in the new columns of cancer_data 
+radius_sd_norm <- sd(cancer_data$radius_mean_normalized)
+radius_sd_norm
+texture_sd_norm <- sd(cancer_data$texture_mean_normalized)
+texture_sd_norm
+smoothness_sd_norm <- sd(cancer_data$smoothness_mean_normalized)
+smoothness_sd_norm
+compactness_sd_norm <- sd(cancer_data$compactness_mean_normalized)
+compactness_sd_norm
+
+# Now all the values are centered around 0 (normalized) which would mean they all have the same standard deviation 
+```
+
+Part 2: Data Visualization 
+
+```{r}
+# Creating a box plot for each of the normalized features 
+
+ggplot(cancer_data, aes(x = radius_mean_normalized)) +
+  geom_boxplot() + 
+  labs(title = "Boxplot of Radius Mean Normalized Values ")
+
+ggplot(cancer_data, aes(x = texture_mean_normalized)) +
+  geom_boxplot() + 
+  labs(title = "Boxplot of Texture Mean Normalized Values ")
+
+ggplot(cancer_data, aes(x = smoothness_mean_normalized)) +
+  geom_boxplot() + 
+  labs(title = "Boxplot of Smoothness Mean Normalized Values ")
+
+ggplot(cancer_data, aes(x = compactness_mean_normalized)) +
+  geom_boxplot() + 
+  labs(title = "Boxplot of Compactness Mean Normalized Values ")
+
+# I think smoothness is most accurate in predicting cancer diagnosis because even though there are a couple of outliers, there are much less than the rest of the features and the data is overall more compact. This means that if the smoothness values are within a certain range you can more accurately determine whether or not the mass is cancerous. 
+```
+
+Part 3: Data Separation 
+
+```{r}
+# Randomly separating 20% of the data and saving it as the test_set, and 80% of the data and saving it as the training_set 
+
+# Calculate the number of rows in the original data frame
+num_rows <- nrow(cancer_data)
+
+# Calculate the number of rows for the training set (80%)
+train_rows <- round(0.8 * num_rows)
+
+# Randomly select row indices for the training set
+train_indices <- sample(1:num_rows, train_rows, replace = FALSE)
+
+# Create training set by selecting rows using the indices
+training_set <- cancer_data[train_indices, ]
+
+# Create test set by excluding rows used in the training set
+test_set <- cancer_data[-train_indices, ]
+
+# Calculating if the sets are 80 and 20% 
+print(nrow(training_set)/nrow(cancer_data))
+print(nrow(test_set)/nrow(cancer_data))
+
+
+```
+
+```{r}
+# Printing the number of observations for each diagnosis in the training and test set 
+
+# Print number of observations for each diagnosis in the training set
+print("Training Set:")
+print(table(training_set$diagnosis))
+
+# Print number of observations for each diagnosis in the test set
+print("Test Set:")
+print(table(test_set$diagnosis))
+
+# Calculate the ratio of M to B for the training set
+training_ratio <- table(training_set$diagnosis)["M"] / table(training_set$diagnosis)["B"]
+print(paste("Ratio of M to B in Training Set:", training_ratio))
+
+# Calculate the ratio of M to B for the test set
+test_ratio <- table(test_set$diagnosis)["M"] / table(test_set$diagnosis)["B"]
+print(paste("Ratio of M to B in Test Set:", test_ratio))
+
+```
+
+Part 4: Logistic Regression 
+
+```{r}
+# Turning the 'diagnosis' column of cancer_data into a binomial variable where B=0 and M=1 as diagnosis2
+for (i in 1:nrow(test_set)) {
+  if (test_set$diagnosis[i] == "M") {
+    test_set$diagnosis2[i] <- 1
+  }
+  else if (test_set$diagnosis[i] == "B") {
+    test_set$diagnosis2[i] <- 0
+  }
+}
+
+head(test_set)
+```
+```{r}
+
+# Turning the 'diagnosis' column of training_data into a binomial variable where B=0 and M=1 as diagnosis2
+for (i in 1:nrow(training_set)) {
+  if (training_set$diagnosis[i] == "M") {
+    training_set$diagnosis2[i] <- 1
+  }
+  else if (training_set$diagnosis[i] == "B") {
+    training_set$diagnosis2[i] <- 0
+  }
+}
+
+head(training_set)
+```
+
+```{r}
+# Using the training_set to create a logistic regression for each mean normalized feature separately 
+
+#Logistic regression for radius_mean_normalized 
+lr_radius<-glm(formula = diagnosis2 ~ radius_mean_normalized,
+              family="binomial",
+              data=training_set)
+# Printing the summary statistics 
+summary(lr_radius)
+
+# Using predict() to predict the odds of getting a correct diagnosis when tested with the test_set data 
+pr_radius<-predict(lr_radius, newdata=test_set, type="response")
+pr_radius_perf = pr_radius
+pr_radius_perf[pr_radius>0.5]=1 
+pr_radius_perf[pr_radius<=0.5]=0 
+confmat_r<-table(test_set[,"diagnosis2"], 
+               pr_radius_perf, 
+               dnn=c("actual", "predicted")) 
+confmat_r
+```
+
+```{r}
+# Summary statistics for radius_mean_normalized logistic regression test on test_set 
+TP_r=confmat_r["1","1"]
+TN_r=confmat_r["0","0"]
+FP_r=confmat_r["0","1"]
+FN_r=confmat_r["1","0"]
+
+accuracy_r = (TP_r+TN_r)/(TP_r+TN_r+FP_r+FN_r)
+print(paste("Accuracy:", accuracy_r))
+
+
+recall_r = TP_r/(TP_r+FN_r)
+print(paste("Recall:", recall_r))
+
+precision_r = TP_r/(TP_r+FP_r)
+print(paste("Precision:", precision_r))
+
+TNR_r = TN_r/(TN_r+FP_r)
+print(paste("TNR:", TNR_r))
+
+
+# Calculating the AUC for radius_mean_normalized logistic regression 
+
+# Creating the ROC object to compare sensitivity to specificity to determine performance of the model
+
+roc_radius <- roc(test_set$diagnosis2, pr_radius)
+
+auc_value_r <- auc(roc_radius)
+print(paste("AUC:", auc_value_r))
+```
+
+
+```{r}
+#Logistic regression for texture_mean_normalized 
+lr_texture<-glm(formula = diagnosis2 ~ texture_mean_normalized,
+              family="binomial",
+              data=training_set)
+
+# Printing the summary statistics 
+summary(lr_texture)
+
+# Using predict() to predict the odds of getting an "M" diagnosis 
+pr_text<-predict(lr_texture, newdata=test_set, type="response")
+pr_text_perf = pr_text
+pr_text_perf[pr_text>0.5]=1 
+pr_text_perf[pr_text<=0.5]=0 
+confmat_t<-table(test_set[,"diagnosis2"], 
+               pr_text_perf, 
+               dnn=c("actual", "predicted")) 
+confmat_t
+
+```
+
+```{r}
+# Summary statistics for texture_mean_normalised logistic regression 
+TP_t=confmat_t["1","1"]
+TN_t=confmat_t["0","0"]
+FP_t=confmat_t["0","1"]
+FN_t=confmat_t["1","0"]
+
+accuracy_t = (TP_t+TN_t)/(TP_t+TN_t+FP_t+FN_t)
+print(paste("Accuracy:", accuracy_t))
+
+
+recall_t = TP_t/(TP_t+FN_t)
+print(paste("Recall:", recall_t))
+
+precision_t = TP_t/(TP_t+FP_t)
+print(paste("Precision:", precision_t))
+
+TNR_t = TN_t/(TN_t+FP_t)
+print(paste("TNR:", TNR_t))
+
+# Calculating the AUC for texture_mean_normalized logistic regression 
+
+# Creating the ROC object to compare sensitivity to specificity to determine performance of the model
+
+roc_text <- roc(test_set$diagnosis2, pr_text)
+
+auc_value_t <- auc(roc_text)
+print(paste("AUC:", auc_value_t))
+```
+
+
+```{r}
+#Logistic regression for smoothness_mean_normalized 
+lr_smoothness<-glm(formula = diagnosis2 ~ smoothness_mean_normalized,
+              family="binomial",
+              data=training_set)
+
+# Printing the summary statistics 
+summary(lr_smoothness)
+
+# Using predict() to predict the odds of getting an "M" diagnosis 
+pr_smooth<-predict(lr_smoothness, newdata=test_set, type="response")
+pr_smooth_perf = pr_smooth
+pr_smooth_perf[pr_smooth>0.5]=1 
+pr_smooth_perf[pr_smooth<=0.5]=0 
+confmat_s<-table(test_set[,"diagnosis2"], 
+               pr_smooth_perf, 
+               dnn=c("actual", "predicted")) 
+confmat_s
+
+```
+
+```{r}
+# Summary statistics for texture_mean_normalised logistic regression 
+TP_s=confmat_s["1","1"]
+TN_s=confmat_s["0","0"]
+FP_s=confmat_s["0","1"]
+FN_s=confmat_s["1","0"]
+
+accuracy_s = (TP_s+TN_s)/(TP_s+TN_s+FP_s+FN_s)
+print(paste("Accuracy:", accuracy_s))
+
+
+recall_s = TP_s/(TP_s+FN_s)
+print(paste("Recall:", recall_s))
+
+precision_s = TP_s/(TP_s+FP_s)
+print(paste("Precision:", precision_s))
+
+TNR_s = TN_s/(TN_s+FP_s)
+print(paste("TNR:", TNR_s))
+
+# Calculating the AUC for radius_mean_normalized logistic regression 
+
+# Creating the ROC object to compare sensitivity to specificity to determine performance of the model
+
+roc_smooth <- roc(test_set$diagnosis2, pr_smooth)
+
+auc_value_s <- auc(roc_smooth)
+print(paste("AUC:", auc_value_s))
+```
+
+
+
+```{r}
+#Logistic regression for compactness_mean_normalized 
+lr_compactness<-glm(formula = diagnosis2 ~ compactness_mean_normalized,
+              family="binomial",
+              data=training_set)
+
+# Printing the summary statistics 
+summary(lr_compactness)
+
+# Using predict() to predict the odds of getting an "M" diagnosis 
+pr_comp<-predict(lr_compactness, newdata=test_set, type="response")
+pr_comp_perf = pr_comp
+pr_comp_perf[pr_comp>0.5]=1 
+pr_comp_perf[pr_comp<=0.5]=0 
+confmat_c<-table(test_set[,"diagnosis2"], 
+               pr_comp_perf, 
+               dnn=c("actual", "predicted")) 
+confmat_c
+```
+
+```{r}
+# Summary statistics for texture_mean_normalised logistic regression 
+TP_c=confmat_c["1","1"]
+TN_c=confmat_c["0","0"]
+FP_c=confmat_c["0","1"]
+FN_c=confmat_c["1","0"]
+
+accuracy_c = (TP_c+TN_c)/(TP_c+TN_c+FP_c+FN_c)
+print(paste("Accuracy:", accuracy_c))
+
+
+recall_c = TP_c/(TP_c+FN_c)
+print(paste("Recall:", recall_c))
+
+precision_c = TP_c/(TP_c+FP_c)
+print(paste("Precision:", precision_c))
+
+TNR_c = TN_c/(TN_c+FP_c)
+print(paste("TNR:", TNR_c))
+
+# Calculating the AUC for radius_mean_normalized logistic regression 
+
+# Creating the ROC object to compare sensitivity to specificity to determine performance of the model
+
+roc_comp <- roc(test_set$diagnosis2, pr_comp)
+
+auc_value_c <- auc(roc_comp)
+print(paste("AUC:", auc_value_c))
+```
+The AUC values indicate that the radius is the most accurate model for predicting the diagnosis of malignant or benign. This is not what I had predicted based on the boxplot visualization! Here is the ranking of AUC values for the normalized observation variables: 
+1 = radius 0.96031746031746
+2 = compactness 0.799603174603175
+3 = texture 0.778604497354497
+4 = smoothness 0.670304232804232
+
+
+```{r}
+# Repeating the logistic regression but training the model on all variables together 
+ 
+lr<-glm(formula = diagnosis2 ~ compactness_mean_normalized + radius_mean_normalized+ texture_mean_normalized + smoothness_mean_normalized,
+              family="binomial",
+              data=training_set)
+
+# Printing the summary statistics 
+summary(lr)
+
+# Using predict() to predict the odds of getting an "M" diagnosis 
+pr<-predict(lr, newdata=test_set, type="response")
+pr_perf = pr
+pr_perf[pr>0.5]=1 
+pr_perf[pr<=0.5]=0 
+confmat<-table(test_set[,"diagnosis2"], 
+               pr_perf, 
+               dnn=c("actual", "predicted")) 
+confmat
+```
+
+
+```{r}
+# Summary statistics for texture_mean_normalised logistic regression 
+TP=confmat["1","1"]
+TN=confmat["0","0"]
+FP=confmat["0","1"]
+FN=confmat["1","0"]
+
+accuracy = (TP+TN)/(TP+TN+FP+FN)
+print(paste("Accuracy:", accuracy))
+
+
+recall = TP/(TP+FN)
+print(paste("Recall:", recall))
+
+precision = TP/(TP+FP)
+print(paste("Precision:", precision))
+
+TNR = TN/(TN+FP)
+print(paste("TNR:", TNR))
+
+# Creating the ROC object to compare sensitivity to specificity to determine performance of the model
+roc <- roc(test_set$diagnosis2, pr)
+auc_value <- auc(roc)
+print(paste("AUC:", auc_value))
+```
+The AUC of all variables is 0.978835978835979 which is only a little better than the AUC of the logistic regression that uses just the radius_mean_normalized data alone. However, the AUC value of the model is still very close to 1 which means it is very accurate at predicting the correct diagnosis given the test data. 
+
+The coefficients of the variables are: 
+                              Estimate Std. Error z value Pr(>|z|)
+(Intercept)                  -0.8544     0.2322  -3.680 0.000234 ***
+compactness_mean_normalized   0.7668     0.3480   2.203 0.027575 *  
+radius_mean_normalized        4.7984     0.6755   7.103 1.22e-12 ***
+texture_mean_normalized       1.7355     0.3108   5.585 2.34e-08 ***
+smoothness_mean_normalized    1.8228     0.3833   4.755 1.98e-06 ***
+
+This indicates that the most impactful variables on predicting diagnosis are radius, texture, and smoothness when all of the variables are combined. In the last model, all of the variables were significant when testing them individually, but when combined we are able to see which ones are the most impactful. 
+
+
+Part 5: Decision Trees 
+
+```{r, echo=F}
+library(party)
+library(AUC)
+```
+
+```{r}
+# Creating a decision tree from training_set 
+
+# Making sure diagnosis2 is treated as categorical
+training_set$diagnosis2 = as.factor(training_set$diagnosis2)
+
+# Creating the decision tree model with all mean_normalized variables 
+Diag_tree<-ctree(formula=diagnosis2 ~ radius_mean_normalized + texture_mean_normalized + smoothness_mean_normalized + compactness_mean_normalized, data=training_set)
+
+# Providing the accuracy of the model based on itself  
+results_tree = predict(Diag_tree)
+table(training_set$diagnosis2, results_tree)
+```
+
+```{r}
+# Calculating the accuracy for the decision tree model of training_set  
+TP=confmat["1","1"]
+TN=confmat["0","0"]
+FP=confmat["0","1"]
+FN=confmat["1","0"]
+
+accuracy = (TP+TN)/(TP+TN+FP+FN)
+print(paste("Accuracy:", accuracy))
+```
+
+```{r}
+# Now testing the model using test_set and calculating the AUC 
+pr_test <- predict(Diag_tree, newdata = test_set, type = "response")
+
+roc_test <- roc(test_set$diagnosis2, pr_test)
+auc_value_test <- auc(roc_test)
+print(paste("AUC:", auc_value_test))
+```
+
+
+
+```{r}
+# Plotting the decision tree 
+plot(Diag_tree)
+```
+According to the decision tree, the radius is the most important variable for predicting diagnosis because it is highest up in the tree. This is consistent to what we found with the logistic regression. 
+
+Part 6: Model Comparison 
+
+```{r}
+# Creating a plot for the AUC of both the Logistic regression made on the model with all four variables and the decision tree 
+
+# Calculate AUC for decision tree model
+#roc_tree <- roc(response, Diag_tree)
+
+# Create a data frame
+auc_values <- data.frame(
+  Method = c("Decision Tree", "Logistic Regression"),
+  AUC = c(auc_value_test, auc_value)
+)
+
+# Create a bar plot
+ggplot(auc_values, aes(x = Method, y = AUC, fill = Method)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  labs(x = "Method", y = "AUC Value", title = "Comparison of AUC Values") +
+  theme_minimal()
+```
+
